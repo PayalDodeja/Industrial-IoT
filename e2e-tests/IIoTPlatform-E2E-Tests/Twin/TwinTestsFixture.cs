@@ -17,11 +17,11 @@ namespace IIoTPlatform_E2E_Tests.Twin {
     using Xunit;
 
     public class TwinTestsFixture : IIoTPlatformTestContext {
-        private readonly string _endpointId;
-        private readonly string _endpointUrl;
+        private string _endpointId = null;
+        private string _endpointUrl = null;
 
         public TwinTestsFixture() {
-            (_endpointId, _endpointUrl) = GetTestServerData();
+            GetTestServerData();
             ActivateEndpoint(_endpointId);
         }
 
@@ -193,7 +193,7 @@ namespace IIoTPlatform_E2E_Tests.Twin {
             }
         }
 
-        private (string, string) GetTestServerData() {
+        private void GetTestServerData() {
             var cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
 
             // Wait for microservices of IIoT platform to be healthy and modules to be deployed.
@@ -212,7 +212,9 @@ namespace IIoTPlatform_E2E_Tests.Twin {
             var json = TestHelper.WaitForEndpointDiscoveryToBeCompleted(this, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
             List<dynamic> discoveredEndpoints = json.items;
             var endpoint = discoveredEndpoints.Where(e => testPlc.EndpointUrl == (e.registration.endpointUrl).TrimEnd('/')).First();
-            return (endpoint.registration.id, testPlc.EndpointUrl);
+
+            _endpointId = endpoint.registration.id;
+            _endpointUrl = testPlc.EndpointUrl;
         }
 
         private void ActivateEndpoint(string endpointId) {
@@ -224,29 +226,6 @@ namespace IIoTPlatform_E2E_Tests.Twin {
             Assert.False(id == null, "The endpoint was not found");
             Assert.Equal(TestConstants.StateConstants.ActivatedAndConnected, activationState);
             Assert.Equal(TestConstants.StateConstants.Ready, endpointState);
-        }
-
-        public dynamic Twin_GetBrowseNode(
-                string nodeId = null,
-                string continuationToken = null) {
-            string route;
-            var queryParams = new Dictionary<string, string>();
-
-            if (continuationToken == null) {
-                route = $"twin/v2/browse/{_endpointId}";
-
-                if (!string.IsNullOrEmpty(nodeId)) {
-                    queryParams.Add("nodeId", nodeId);
-                }
-            }
-            else {
-                route = $"twin/v2/browse/{_endpointId}/next";
-                queryParams.Add("continuationToken", continuationToken);
-            }
-
-            var response = TestHelper.CallRestApi(this, Method.GET, route, queryParameters: queryParams);
-            dynamic json = JsonConvert.DeserializeObject<ExpandoObject>(response.Content, new ExpandoObjectConverter());
-            return json;
         }
     }
 }
