@@ -5,6 +5,7 @@
 
 namespace IIoTPlatform_E2E_Tests {
     using Newtonsoft.Json;
+    using Newtonsoft.Json.Converters;
     using Renci.SshNet;
     using RestSharp;
     using RestSharp.Authenticators;
@@ -18,13 +19,10 @@ namespace IIoTPlatform_E2E_Tests {
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
-    using Newtonsoft.Json.Converters;
     using TestExtensions;
     using TestModels;
     using Xunit;
-    using Newtonsoft.Json.Linq;
     using Xunit.Abstractions;
-    using System.Collections.Concurrent;
 
     internal static class TestHelper {
 
@@ -660,68 +658,7 @@ namespace IIoTPlatform_E2E_Tests {
                 throw;
             }
         }
-
-        /// <summary>
-        /// Equivalent to GetSetOfUniqueNodesAsync
-        /// </summary>
-        /// <param name="context">Shared Context for E2E testing Industrial IoT Platform</param>
-        /// <param name="endpointId">Id of the endpoint as returned by <see cref="Registry_GetEndpoints(IIoTPlatformTestContext)"/></param>
-        /// <param name="nodeId">Id of the parent node or null to browse the root node</param>
-        /// <param name="ct">Cancellation token</param>
-        public static async Task<List<(string NodeId, string NodeClass, bool Children)>> Twin_GetBrowseEndpointAsync(
-                IIoTPlatformTestContext context,
-                string endpointId,
-                string nodeId = null,
-                CancellationToken ct = default) {
-
-            if (string.IsNullOrEmpty(endpointId)) {
-                context.OutputHelper.WriteLine($"{nameof(endpointId)} is null or empty");
-                throw new ArgumentNullException(nameof(endpointId));
-            }
-
-            var result = new List<(string NodeId, string NodeClass, bool Children)>();
-            string continuationToken = null;
-
-            do {
-                var browseResult = await Twin_GetBrowseEndpoint_InternalAsync(context, endpointId, nodeId, continuationToken, ct);
-
-                if (browseResult.results.Count > 0) {
-                    result.AddRange(browseResult.results);
-                }
-
-                continuationToken = browseResult.continuationToken;
-            } while (continuationToken != null);
-
-            return result;
-        }
-
-        /// <summary>
-        /// Equivalent to recursive calling GetSetOfUniqueNodesAsync to get the whole hierarchy of nodes
-        /// </summary>
-        /// <param name="context">Shared Context for E2E testing Industrial IoT Platform</param>
-        /// <param name="endpointId">Id of the endpoint as returned by <see cref="Registry_GetEndpoints(IIoTPlatformTestContext)"/></param>
-        /// <param name="nodeClass">Class of the node to filter to or null for no filtering</param>
-        /// <param name="nodeId">Id of the parent node or null to browse the root node</param>
-        /// <param name="ct">Cancellation token</param>
-        public static async Task<List<(string NodeId, string NodeClass, bool Children)>> Twin_GetBrowseEndpoint_RecursiveAsync(
-                IIoTPlatformTestContext context,
-                string endpointId,
-                string nodeClass = null,
-                string nodeId = null,
-                CancellationToken ct = default) {
-
-            if (string.IsNullOrEmpty(endpointId)) {
-                context.OutputHelper.WriteLine($"{nameof(endpointId)} is null or empty");
-                throw new ArgumentNullException(nameof(endpointId));
-            }
-
-            var nodes = new ConcurrentBag<(string NodeId, string NodeClass, bool Children)>();
-
-            await Twin_GetBrowseEndpoint_RecursiveCollectResultsAsync(context, endpointId, nodes, nodeId, ct);
-
-            return nodes.Where(n => string.Equals(nodeClass, n.NodeClass, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-
+     
         /// <summary>
         /// Registers a server, the discovery url will be saved in the <paramref name="context"/>
         /// </summary>
@@ -919,6 +856,55 @@ namespace IIoTPlatform_E2E_Tests {
         }
 
         /// <summary>
+        /// Call REST Api
+        /// </summary>
+        /// <param name="context">Shared Context for E2E testing Industrial IoT Platform</param>
+        /// <param name="method">REST method (Get, Post, Delete...)</param>
+        /// <param name="route">Route for the url</param>
+        /// <param name="body">Body for the request</param>
+        /// <param name="queryParameters">Additional query parameters</param>
+        public static IRestResponse CallRestApi(
+            IIoTPlatformTestContext context,
+            Method method,
+            string route,
+            object body = null,
+            Dictionary<string, string> queryParameters = null) {
+            var ct = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds).Token;
+            var accessToken = GetTokenAsync(context, ct).GetAwaiter().GetResult();
+
+            var request = new RestRequest(method);
+            request.Resource = route;
+            request.AddHeader(TestConstants.HttpHeaderNames.Authorization, accessToken);
+
+            if (body != null) {
+                request.AddJsonBody(JsonConvert.SerializeObject(body));
+            }
+
+            if (queryParameters != null) {
+                foreach (var param in queryParameters) {
+                    request.AddQueryParameter(param.Key, param.Value);
+                }
+            }
+
+            var restClient = new RestClient(context.IIoTPlatformConfigHubConfig.BaseUrl) { Timeout = TestConstants.DefaultTimeoutInMilliseconds };
+            var response = restClient.ExecuteAsync(request, ct).GetAwaiter().GetResult();
+            Assert.True(response.IsSuccessful);
+            return response;
+        }
+
+        /// <summary>
+        /// Determines if an ExpandoObject has a property
+        /// </summary>
+        /// <param name="expandoObject">ExpandoObject to exemine</param>
+        /// <param name="propertyName">Name of the property</param>
+        public static bool HasProperty(object expandoObject, string propertyName) {
+            if (!(expandoObject is IDictionary<string, object> dictionary)) {
+                throw new InvalidOperationException("Object is not an ExpandoObject");
+            }
+            return dictionary.ContainsKey(propertyName);
+        }
+
+        /// <summary>
         /// Determines if two strings can be considered the representation of the same URL
         /// </summary>
         /// <param name="url1">URL to compare</param>
@@ -966,117 +952,6 @@ namespace IIoTPlatform_E2E_Tests {
                 outputHelper.WriteLine("");
                 exception = exception.InnerException;
             }
-        }
-
-        /// <summary>
-        /// Calls a GET twin browse with the given <paramref name="endpointId"/>
-        /// </summary>
-        /// <param name="context">Shared Context for E2E testing Industrial IoT Platform</param>
-        /// <param name="endpointId">Id of the endpoint as returned by <see cref="Registry_GetEndpoints(IIoTPlatformTestContext)"/></param>
-        /// <param name="nodeId">Id of the parent node or null to browse the root node</param>
-        /// <param name="continuationToken">Continuation token from the previous call, or null</param>
-        /// <param name="ct">Cancellation token</param>
-        private static async Task<(List<(string NodeId, string NodeClass, bool Children)> results, string continuationToken)> Twin_GetBrowseEndpoint_InternalAsync(
-                IIoTPlatformTestContext context,
-                string endpointId,
-                string nodeId = null,
-                string continuationToken = null,
-                CancellationToken ct = default) {
-
-            var accessToken = await GetTokenAsync(context, ct).ConfigureAwait(false);
-            var client = new RestClient(context.IIoTPlatformConfigHubConfig.BaseUrl) { Timeout = TestConstants.DefaultTimeoutInMilliseconds };
-
-            var request = new RestRequest(Method.GET);
-            request.AddHeader(TestConstants.HttpHeaderNames.Authorization, accessToken);
-
-            if (continuationToken == null) {
-                request.Resource = $"twin/v2/browse/{endpointId}";
-
-                if (!string.IsNullOrEmpty(nodeId)) {
-                    request.AddQueryParameter("nodeId", nodeId);
-                }
-            }
-            else {
-                request.Resource = $"twin/v2/browse/{endpointId}/next";
-                request.AddQueryParameter("continuationToken", continuationToken);
-            }
-
-            var response = await client.ExecuteAsync(request, ct).ConfigureAwait(false);
-            
-            Assert.NotNull(response);
-            if (!response.IsSuccessful) {
-                context.OutputHelper.WriteLine($"StatusCode: {response.StatusCode}");
-                context.OutputHelper.WriteLine($"ErrorMessage: {response.ErrorMessage}");
-                Assert.True(response.IsSuccessful, "GET twin/v2/browse/{endpointId} failed!");
-            }
-
-            dynamic json = JsonConvert.DeserializeObject<ExpandoObject>(response.Content, new ExpandoObjectConverter());
-
-            Assert.True(HasProperty(json, "references"), "GET twin/v2/browse/{endpointId} response has no items");
-            Assert.False(json.references == null, "GET twin/v2/browse/{endpointId} response references property is null");
-
-            var result = new List<(string NodeId, string NodeClass, bool Children)>();
-
-            foreach (var node in json.references) {
-                result.Add(
-                    (
-                        node.target?.nodeId?.ToString(),
-                        node.target?.nodeClass?.ToString(),
-                        string.Equals(node.target?.children?.ToString(), "true", StringComparison.OrdinalIgnoreCase)));
-            }
-
-            var responseContinuationToken = HasProperty(json, "continuationToken") ? json.continuationToken : null;
-
-            return (results: result, continuationToken: responseContinuationToken);
-        }
-
-        /// <summary>
-        /// Collects all nodes recursively avoiding circular references between nodes
-        /// </summary>
-        /// <param name="context">Shared Context for E2E testing Industrial IoT Platform</param>
-        /// <param name="endpointId">Id of the endpoint as returned by <see cref="Registry_GetEndpoints(IIoTPlatformTestContext)"/></param>
-        /// <param name="nodes">Collection of nodes found</param>
-        /// <param name="nodeId">Id of the parent node or null to browse the root node</param>
-        /// <param name="ct">Cancellation token</param>
-        private static async Task Twin_GetBrowseEndpoint_RecursiveCollectResultsAsync(
-                IIoTPlatformTestContext context,
-                string endpointId,
-                ConcurrentBag<(string NodeId, string NodeClass, bool Children)> nodes,
-                string nodeId = null,
-                CancellationToken ct = default) {
-
-            var currentNodes = await Twin_GetBrowseEndpointAsync(context, endpointId, nodeId).ConfigureAwait(false);
-
-            foreach (var node in currentNodes) {
-                ct.ThrowIfCancellationRequested();
-
-                if (nodes.Any(n => string.Equals(n.NodeId, node.NodeId))) {
-                    continue;
-                }
-
-                nodes.Add(node);
-
-                if (node.Children) {
-                    await Twin_GetBrowseEndpoint_RecursiveCollectResultsAsync(
-                        context,
-                        endpointId,
-                        nodes,
-                        node.NodeId,
-                        ct).ConfigureAwait(false);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Determines if an ExpandoObject has a property
-        /// </summary>
-        /// <param name="expandoObject">ExpandoObject to exemine</param>
-        /// <param name="propertyName">Name of the property</param>
-        private static bool HasProperty(object expandoObject, string propertyName) {
-            if (!(expandoObject is IDictionary<string, object> dictionary)) {
-                throw new InvalidOperationException("Object is not an ExpandoObject");
-            }
-            return dictionary.ContainsKey(propertyName);
         }
     }
 }
