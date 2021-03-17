@@ -21,8 +21,7 @@ namespace IIoTPlatform_E2E_Tests.Twin {
         private string _endpointUrl = null;
 
         public TwinTestsFixture() {
-            GetTestServerData();
-            ActivateEndpoint(_endpointId);
+            ActivateTestEndpoint();
         }
 
         public new void Dispose() {         
@@ -193,7 +192,7 @@ namespace IIoTPlatform_E2E_Tests.Twin {
             }
         }
 
-        private void GetTestServerData() {
+        private void ActivateTestEndpoint() {
             var cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
 
             // Wait for microservices of IIoT platform to be healthy and modules to be deployed.
@@ -211,21 +210,19 @@ namespace IIoTPlatform_E2E_Tests.Twin {
 
             var json = TestHelper.WaitForEndpointDiscoveryToBeCompleted(this, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
             List<dynamic> discoveredEndpoints = json.items;
-            var endpoint = discoveredEndpoints.Where(e => testPlc.EndpointUrl == (e.registration.endpointUrl).TrimEnd('/')).First();
+            var endpoint = discoveredEndpoints.Where(e => testPlc.EndpointUrl == e.registration.endpointUrl.TrimEnd('/')).First();          
 
-            _endpointId = endpoint.registration.id;
-            _endpointUrl = testPlc.EndpointUrl;
-        }
-
-        private void ActivateEndpoint(string endpointId) {
-            TestHelper.Registry_ActivateEndpointAsync(this, endpointId).GetAwaiter().GetResult();
+            TestHelper.Registry_ActivateEndpointAsync(this, endpoint.registration.id).GetAwaiter().GetResult();
             var endpoints = TestHelper.Registry_GetEndpointsAsync(this).GetAwaiter().GetResult();
             Assert.NotEmpty(endpoints);
 
-            var (id, url, activationState, endpointState) = endpoints.SingleOrDefault(e => string.Equals(endpointId, e.Id));
+            var (id, url, activationState, endpointState) = endpoints.SingleOrDefault(e => string.Equals(endpoint.registration.id, e.Id));
             Assert.False(id == null, "The endpoint was not found");
             Assert.Equal(TestConstants.StateConstants.ActivatedAndConnected, activationState);
             Assert.Equal(TestConstants.StateConstants.Ready, endpointState);
+
+            _endpointId = endpoint.registration.id;
+            _endpointUrl = testPlc.EndpointUrl;
         }
     }
 }
