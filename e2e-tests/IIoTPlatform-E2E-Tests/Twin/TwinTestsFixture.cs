@@ -21,7 +21,9 @@ namespace IIoTPlatform_E2E_Tests.Twin {
         private string _endpointUrl = null;
 
         public TwinTestsFixture() {
-            ActivateTestEndpoint();
+            // TODO: Separate the configuration and IIoTPlatformTestContext and change the helper methods to depend only on the configuration
+            var tmpContext = new IIoTPlatformTestContext();
+            ActivateTestEndpoint(tmpContext);
         }
 
         public new void Dispose() {         
@@ -192,28 +194,28 @@ namespace IIoTPlatform_E2E_Tests.Twin {
             }
         }
 
-        private void ActivateTestEndpoint() {
+        private void ActivateTestEndpoint(IIoTPlatformTestContext context) {
             var cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
 
             // Wait for microservices of IIoT platform to be healthy and modules to be deployed.
-            TestHelper.WaitForServicesAsync(this, cts.Token).GetAwaiter().GetResult();
+            TestHelper.WaitForServicesAsync(context, cts.Token).GetAwaiter().GetResult();
             RegistryHelper.WaitForIIoTModulesConnectedAsync(DeviceConfig.DeviceId, cts.Token).GetAwaiter().GetResult();
 
-            var simulatedOpcPlcs = TestHelper.GetSimulatedPublishedNodesConfigurationAsync(this, cts.Token).GetAwaiter().GetResult();
+            var simulatedOpcPlcs = TestHelper.GetSimulatedPublishedNodesConfigurationAsync(context, cts.Token).GetAwaiter().GetResult();
             var testPlc = simulatedOpcPlcs.Values.First();
 
-            TestHelper.Registry_RegisterServerAsync(this, testPlc.EndpointUrl, cts.Token).GetAwaiter().GetResult();
+            TestHelper.Registry_RegisterServerAsync(context, testPlc.EndpointUrl, cts.Token).GetAwaiter().GetResult();
 
-            dynamic result = TestHelper.WaitForDiscoveryToBeCompletedAsync(this, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
+            dynamic result = TestHelper.WaitForDiscoveryToBeCompletedAsync(context, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
             List<dynamic> servers = result.items;
             var server = servers.Where(s => s.discoveryUrls[0].TrimEnd('/') == testPlc.EndpointUrl).First();
 
-            var json = TestHelper.WaitForEndpointDiscoveryToBeCompleted(this, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
+            var json = TestHelper.WaitForEndpointDiscoveryToBeCompleted(context, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
             List<dynamic> discoveredEndpoints = json.items;
             var endpoint = discoveredEndpoints.Where(e => testPlc.EndpointUrl == e.registration.endpointUrl.TrimEnd('/')).First();          
 
-            TestHelper.Registry_ActivateEndpointAsync(this, endpoint.registration.id).GetAwaiter().GetResult();
-            var endpoints = TestHelper.Registry_GetEndpointsAsync(this).GetAwaiter().GetResult();
+            TestHelper.Registry_ActivateEndpointAsync(context, endpoint.registration.id).GetAwaiter().GetResult();
+            var endpoints = TestHelper.Registry_GetEndpointsAsync(context).GetAwaiter().GetResult();
             Assert.NotEmpty(endpoints);
 
             var (id, url, activationState, endpointState) = endpoints.SingleOrDefault(e => string.Equals(endpoint.registration.id, e.Id));
