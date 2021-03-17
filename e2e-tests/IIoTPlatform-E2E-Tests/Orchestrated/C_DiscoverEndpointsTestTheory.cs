@@ -68,6 +68,12 @@ namespace IIoTPlatform_E2E_Tests.Orchestrated {
             // Validate that the endpoint can be found
             var result = TestHelper.WaitForEndpointDiscoveryToBeCompleted(_context, _cancellationTokenSource.Token, requestedEndpointUrls: urls).GetAwaiter().GetResult();
             Assert.Equal(url, ((string)result.items[0].registration.endpointUrl).TrimEnd('/'));
+
+            // Validate that the certificate can be returned
+            var endpoint = result.items[0].registration.endpoint;
+            Assert.Equal("SignAndEncrypt", endpoint.securityMode.ToString());
+            Assert.Equal("http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256", endpoint.securityPolicy.ToString());
+            Assert.Equal(40, endpoint.certificate.ToString().Length);
         }
 
         [Fact, PriorityOrder(1)]
@@ -116,32 +122,6 @@ namespace IIoTPlatform_E2E_Tests.Orchestrated {
 
             // Remove all servers
             RemoveAllApplications(applicationIds);
-        }
-
-        [Fact, PriorityOrder(3)]
-        public void Test_Endpoint_Certificate() {
-            // Add 1 server
-            var server = _servers[0];
-            string url = Convert.ToString(server.discoveryUrls[0]).TrimEnd('/');
-            var urls = new List<string> { url };
-            AddTestOpcServers(urls);
-
-            // Registers servers by running a discovery scan
-            string ipAddress = Convert.ToString(server.hostAddresses[0]);
-            var cidr = ipAddress.Replace(":50000/", "") + "/16";
-            var body = new {
-                configuration = new {
-                    addressRangesToScan = cidr
-                }
-            };
-            TestHelper.CallRestApi(_context, Method.POST, TestConstants.APIRoutes.RegistryDiscover, body);
-
-            // Validate that the certificate can be returned
-            var result = TestHelper.WaitForEndpointDiscoveryToBeCompleted(_context, _cancellationTokenSource.Token, requestedEndpointUrls: urls).GetAwaiter().GetResult();
-            var endpoint = result.items[0].registration.endpoint;
-            Assert.Equal("SignAndEncrypt", endpoint.securityMode.ToString());
-            Assert.Equal("http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256", endpoint.securityPolicy.ToString());
-            Assert.Equal(40, endpoint.certificate.ToString().Length);
         }
 
         private void AddTestOpcServers(List<string> endpointUrls) {
