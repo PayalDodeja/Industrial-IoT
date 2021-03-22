@@ -164,6 +164,7 @@ namespace IIoTPlatform_E2E_Tests {
             string route,
             object body = null,
             Dictionary<string, string> queryParameters = null,
+            bool expectSuccess = false,
             CancellationToken ct = default
         ) {
             var accessToken = GetTokenAsync(context, ct).GetAwaiter().GetResult();
@@ -184,6 +185,17 @@ namespace IIoTPlatform_E2E_Tests {
 
             var restClient = new RestClient(context.IIoTPlatformConfigHubConfig.BaseUrl) { Timeout = TestConstants.DefaultTimeoutInMilliseconds };
             var response = restClient.ExecuteAsync(request, ct).GetAwaiter().GetResult();
+
+            if (expectSuccess) {
+                Assert.NotNull(response);
+
+                if (!response.IsSuccessful) {
+                    context.OutputHelper?.WriteLine($"StatusCode: {response.StatusCode}");
+                    context.OutputHelper?.WriteLine($"ErrorMessage: {response.ErrorMessage}");
+                    Assert.True(response.IsSuccessful, $"{method} {route} failed!");
+                }
+            }
+
             return response;
         }
 

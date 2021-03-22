@@ -8,7 +8,6 @@ namespace IIoTPlatform_E2E_Tests.Discovery {
     using RestSharp;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Threading;
 
     public class DiscoveryTestContext : IIoTPlatformTestContext {
         /// <summary>

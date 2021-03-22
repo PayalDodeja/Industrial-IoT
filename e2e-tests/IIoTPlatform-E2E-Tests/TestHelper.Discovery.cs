@@ -168,7 +168,7 @@ namespace IIoTPlatform_E2E_Tests {
             /// <param name="requestedEndpointUrl">Endpoint URL to get the ID for</param>
             /// <param name="ct">Cancellation token</param>
             /// <returns></returns>
-            public static async Task<string> GetOpcUaEndpointId(
+            public static async Task<string> GetOpcUaEndpointIdAsync(
                     IIoTPlatformTestContext context,
                     string requestedEndpointUrl,
                     CancellationToken ct) {

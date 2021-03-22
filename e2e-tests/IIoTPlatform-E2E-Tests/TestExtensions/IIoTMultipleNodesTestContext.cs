@@ -5,11 +5,13 @@
 
 namespace IIoTPlatform_E2E_Tests.TestExtensions {
     using IIoTPlatform_E2E_Tests.TestModels;
+    using RestSharp;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Xunit;
 
     /// <summary>
     /// Context to pass between test, for test that handle multiple OPC UA nodes
@@ -17,6 +19,10 @@ namespace IIoTPlatform_E2E_Tests.TestExtensions {
     public class IIoTMultipleNodesTestContext : IIoTPlatformTestContext  {
         public IIoTMultipleNodesTestContext() {
             ConsumedOpcUaNodes = new Dictionary<string, PublishedNodesEntryModel>();
+            TestHelper.SwitchToOrchestratedModeAsync(this).GetAwaiter().GetResult();
+
+            // Prepare the environment for the publisher tests
+            PrepareEnvironment();
         }
 
         /// <summary>
@@ -58,10 +64,61 @@ namespace IIoTPlatform_E2E_Tests.TestExtensions {
         }
 
         /// <summary>
-        /// Reset the consumed nodes
+        /// Disposes resources.
+        /// Used for cleanup executed once after all tests of the collection were executed.
         /// </summary>
-        public void Reset() {
-            ConsumedOpcUaNodes?.Clear();
+        protected override void Dispose(bool disposing) {
+            if (!disposing) {
+                return;
+            }
+
+            // OutputHelper cannot be used outside of test calls, we get rid of it before a helper method would use it
+            OutputHelper = null;
+
+            // Remove all applications
+            var cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
+            var route = TestConstants.APIRoutes.RegistryApplications;
+            TestHelper.CallRestApi(this, Method.DELETE, route, expectSuccess: true, ct: cts.Token);
+
+            base.Dispose(true);
+        }
+
+        private void PrepareEnvironment() {
+            var cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
+
+            // We will wait for microservices of IIoT platform to be healthy and modules to be deployed.
+            TestHelper.WaitForServicesAsync(this, cts.Token).GetAwaiter().GetResult();
+            RegistryHelper.WaitForIIoTModulesConnectedAsync(DeviceConfig.DeviceId, cts.Token).GetAwaiter().GetResult();
+            LoadSimulatedPublishedNodes(cts.Token).GetAwaiter().GetResult();
+
+            // use the second OPC PLC for testing
+            var testPlc = SimulatedPublishedNodes.Values.Skip(1).First();
+            ConsumedOpcUaNodes[testPlc.EndpointUrl] = GetEntryModelWithoutNodes(testPlc);
+            var body = new {
+                discoveryUrl = testPlc.EndpointUrl
+            };
+            var route = TestConstants.APIRoutes.RegistryApplications;
+            TestHelper.CallRestApi(this, Method.POST, route, body, expectSuccess: true, ct: cts.Token);
+
+            // check that Application was registered
+            cts = new CancellationTokenSource(TestConstants.MaxTestTimeoutMilliseconds);
+            dynamic json = TestHelper.Discovery.WaitForDiscoveryToBeCompletedAsync(this, cts.Token, new List<string> { testPlc.EndpointUrl }).GetAwaiter().GetResult();
+            bool found = false;
+            for (int indexOfTestPlc = 0; indexOfTestPlc < (int)json.items.Count; indexOfTestPlc++) {
+
+                var endpoint = ((string)json.items[indexOfTestPlc].discoveryUrls[0]).TrimEnd('/');
+                if (endpoint == testPlc.EndpointUrl) {
+                    found = true;
+                    break;
+                }
+            }
+            Assert.True(found, "OPC Application not activated");
+
+            // Read OPC UA Endpoint ID
+            OpcUaEndpointId = TestHelper.Discovery.GetOpcUaEndpointIdAsync(this, testPlc.EndpointUrl, cts.Token).GetAwaiter().GetResult();
+
+            // Activate OPC UA Endpoint and wait until it's activated
+            TestHelper.Registry.ActivateEndpointAsync(this, OpcUaEndpointId, cts.Token).GetAwaiter().GetResult();
         }
     }
 }
